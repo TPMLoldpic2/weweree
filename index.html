@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#efe5cf">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="展品導覽">
+  <title>展品語音導覽</title>
+  <style>
+    :root{
+      --ink:#3a2a12;
+      --line:rgba(74,52,24,.20);
+      --card:rgba(250,246,236,.80);
+      --shadow:0 5px 16px rgba(55,38,15,.10);
+      --radius:20px;
+    }
+    *{box-sizing:border-box}
+    html{background:#f4ecdb}
+    body{
+      margin:0;
+      min-height:100svh;
+      color:var(--ink);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",
+        "PingFang TC","Microsoft JhengHei",sans-serif;
+      background:
+        linear-gradient(rgba(248,244,234,.72),rgba(248,244,234,.72)),
+        url("bk.jpg") center/cover fixed;
+    }
+    button{font:inherit;color:inherit}
+    button:focus-visible{outline:4px solid #075ff7;outline-offset:3px}
+    .app{
+      width:min(100%,760px);
+      min-height:100svh;
+      margin:0 auto;
+      padding:max(12px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom));
+    }
+    .screen[hidden]{display:none!important}
+
+    /* 主畫面：一般手機尺寸盡量完整容納於一個 viewport。
+       若使用者把文字放很大，仍允許自然向下捲動，不裁切內容。 */
+    #detailScreen{
+      min-height:calc(100svh - max(12px,env(safe-area-inset-top)) - max(14px,env(safe-area-inset-bottom)));
+      display:grid;
+      grid-template-rows:auto auto minmax(250px,1fr) auto auto;
+      gap:10px;
+      align-content:stretch;
+    }
+
+    .status{
+      margin:0;
+      text-align:center;
+      font-size:clamp(1rem,3.7vw,1.25rem);
+      font-weight:800;
+    }
+
+    .info-card{
+      padding:12px 16px;
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      background:var(--card);
+      box-shadow:var(--shadow);
+    }
+    .era{
+      font-size:clamp(1.05rem,4vw,1.35rem);
+      font-weight:800;
+      margin-bottom:4px;
+    }
+    .title{
+      font-size:clamp(1.35rem,5.2vw,1.9rem);
+      font-weight:900;
+      line-height:1.25;
+    }
+
+    /* 注意：展品照片是 CSS background，不是 <img>。
+       VoiceOver / TalkBack 不會遇到「圖片」這個額外焦點。 */
+    .describe-button{
+      width:100%;
+      min-height:250px;
+      position:relative;
+      display:grid;
+      place-items:center;
+      overflow:hidden;
+      padding:18px;
+      border:0;
+      border-radius:var(--radius);
+      background-position:center;
+      background-size:cover;
+      background-repeat:no-repeat;
+      box-shadow:var(--shadow);
+      cursor:pointer;
+    }
+
+    /* 白色外框，中間透明。 */
+    .describe-label{
+      position:relative;
+      z-index:1;
+      width:min(90%,610px);
+      min-height:120px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:14px;
+      padding:18px 22px;
+      border:5px solid #fff;
+      border-radius:22px;
+      background:rgba(0,0,0,.06);
+      color:#fff;
+      text-align:center;
+      text-shadow:0 2px 8px rgba(0,0,0,.72);
+      font-size:clamp(1.8rem,6.8vw,2.7rem);
+      font-weight:900;
+    }
+
+    /* 圖示純裝飾，aria-hidden；不會被唸成圖片、圖示或播放鍵。 */
+    .play-icon{
+      width:48px;
+      height:48px;
+      flex:0 0 48px;
+      color:#fff;
+      filter:drop-shadow(0 2px 4px rgba(0,0,0,.45));
+    }
+
+    .nav-row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .control{
+      min-height:86px;
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      background:var(--card);
+      box-shadow:var(--shadow);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding:14px 16px;
+      font-size:clamp(1.25rem,4.8vw,1.8rem);
+      font-weight:900;
+      cursor:pointer;
+    }
+    .overview-button{width:100%;min-height:78px}
+
+    .visual-status{
+      position:fixed;
+      left:50%;
+      bottom:max(18px, env(safe-area-inset-bottom));
+      transform:translateX(-50%);
+      width:min(calc(100% - 32px), 620px);
+      z-index:20;
+      padding:14px 18px;
+      border-radius:16px;
+      background:rgba(58,42,18,.94);
+      color:#fff;
+      text-align:center;
+      font-size:1.05rem;
+      font-weight:800;
+      box-shadow:0 6px 20px rgba(0,0,0,.20);
+    }
+
+    .sr-only{
+      position:absolute!important;width:1px!important;height:1px!important;
+      padding:0!important;margin:-1px!important;overflow:hidden!important;
+      clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;
+    }
+
+    /* 總覽 */
+    #overviewScreen{padding-bottom:10px}
+    .overview-header{
+      display:grid;
+      grid-template-columns:76px 1fr 76px;
+      align-items:center;
+      gap:8px;
+      margin-bottom:4px;
+    }
+    .back-button{
+      min-height:64px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:var(--card);
+      box-shadow:var(--shadow);
+      font-size:1.55rem;
+      font-weight:900;
+    }
+    .overview-title{
+      margin:0;
+      text-align:center;
+      font-size:clamp(1.7rem,6vw,2.4rem);
+      font-weight:900;
+    }
+    .overview-count{
+      margin:0 0 12px;
+      text-align:center;
+      font-weight:800;
+    }
+    .overview-list{
+      list-style:none;
+      padding:0;
+      margin:0;
+      display:grid;
+      gap:10px;
+    }
+    .overview-item{
+      width:100%;
+      min-height:96px;
+      padding:16px 18px;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:var(--card);
+      box-shadow:var(--shadow);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:14px;
+      text-align:left;
+      cursor:pointer;
+    }
+    .overview-main{display:grid;gap:4px}
+    .overview-number{font-size:1.05rem;font-weight:900}
+    .overview-name{font-size:clamp(1.25rem,4.7vw,1.7rem);font-weight:900}
+    .current-badge{
+      width:max-content;
+      padding:4px 9px;
+      border-radius:999px;
+      background:#947039;
+      color:#fff;
+      font-size:.9rem;
+      font-weight:900;
+    }
+    .chevron{font-size:1.8rem;font-weight:900}
+
+    @media(max-height:700px){
+      #detailScreen{
+        grid-template-rows:auto auto minmax(210px,1fr) auto auto;
+        gap:8px;
+      }
+      .info-card{padding:9px 13px}
+      .describe-label{min-height:100px}
+      .control{min-height:74px}
+      .overview-button{min-height:68px}
+    }
+  </style>
+</head>
+<body>
+<main class="app">
+
+  <section id="loadingScreen" class="screen" aria-live="polite">
+    <p id="loadingMessage" class="status">正在載入展品資料</p>
+  </section>
+
+  <section id="detailScreen" class="screen" aria-labelledby="exhibitTitle" hidden>
+    <!-- 狀態文字，不是按鈕，所以不需要搶太多視覺空間。 -->
+    <p id="positionText" class="status">第 1 件，共 2 件</p>
+
+    <section class="info-card">
+      <div id="exhibitEra" class="era">第一件展品</div>
+      <h1 id="exhibitTitle" class="title">歷史照片一</h1>
+    </section>
+
+    <!--
+      整張展品區只有一個可操作焦點。
+      MP3 直接綁在這顆按鈕。
+      初始：聽展品描述
+      播放中：暫停展品描述
+      暫停後：繼續展品描述
+    -->
+    <button id="describeButton" class="describe-button" type="button"
+      aria-label="聽展品描述">
+      <span class="describe-label" aria-hidden="true">
+        <svg class="play-icon" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+          <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="5"/>
+          <path d="M27 20 L46 32 L27 44 Z" fill="currentColor"/>
+        </svg>
+        <span id="describeVisualText">聽展品描述</span>
+      </span>
+    </button>
+
+    <div class="nav-row">
+      <button id="prevButton" class="control" type="button" aria-label="上一件">
+        <span aria-hidden="true">←</span><span>上一件</span>
+      </button>
+
+      <button id="nextButton" class="control" type="button" aria-label="下一件">
+        <span>下一件</span><span aria-hidden="true">→</span>
+      </button>
+    </div>
+
+    <button id="overviewButton" class="control overview-button" type="button"
+      aria-label="展品總覽，共 2 件">
+      <span aria-hidden="true">☰</span>
+      <span>展品總覽（共 2 件）</span>
+    </button>
+
+    <div id="visualStatus" class="visual-status" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+    <div id="liveStatus" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <audio id="audioPlayer" preload="none"></audio>
+  </section>
+
+  <section id="overviewScreen" class="screen" hidden aria-labelledby="overviewHeading">
+    <div class="overview-header">
+      <button id="backButton" class="back-button" type="button" aria-label="返回目前展品">←</button>
+      <h1 id="overviewHeading" class="overview-title">展品總覽</h1>
+      <span aria-hidden="true"></span>
+    </div>
+    <p id="overviewCount" class="overview-count">共 2 件</p>
+    <ul id="overviewList" class="overview-list"></ul>
+  </section>
+
+</main>
+
+<script>
+  let exhibits = [];
+
+  // 測試：第 1 件展品的語音改用 Google Drive 公開連結。
+  // 其他展品仍使用原本 vedio/pX.mp3。
+  const externalAudioUrls = {
+    "1": "https://drive.google.com/uc?export=download&id=1fBFdC4hTmFsfHD0tp7IvByG68Thukedg"
+  };
+
+  async function loadExhibitsFromTxt(){
+    const exhibitsUrl = new URL("./exhibits.txt", document.baseURI);
+    const response = await fetch(exhibitsUrl, { cache: "no-store" });
+    if(!response.ok){
+      throw new Error(`HTTP ${response.status}：${exhibitsUrl.href}`);
+    }
+
+    const raw = await response.text();
+    const lines = raw
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    if(lines.length < 2){
+      throw new Error("exhibits.txt 沒有展品資料");
+    }
+
+    exhibits = lines.slice(1).map((line, rowIndex) => {
+      const cols = line.split("\t").map(value => value.trim());
+      if(cols.length < 3){
+        throw new Error(`exhibits.txt 第 ${rowIndex + 2} 列格式錯誤`);
+      }
+
+      const [number, era, title] = cols;
+      return {
+        number,
+        era,
+        title,
+        image: `p${number}.jpg`,
+        audio: externalAudioUrls[number] || `vedio/p${number}.mp3`
+      };
+    });
+  }
+
+  let currentIndex = 0;
+  let audioState = "idle"; // idle | playing | paused
+
+  const loadingScreen = document.getElementById("loadingScreen");
+  const loadingMessage = document.getElementById("loadingMessage");
+  const detailScreen = document.getElementById("detailScreen");
+  const overviewScreen = document.getElementById("overviewScreen");
+  const positionText = document.getElementById("positionText");
+  const exhibitEra = document.getElementById("exhibitEra");
+  const exhibitTitle = document.getElementById("exhibitTitle");
+  const describeButton = document.getElementById("describeButton");
+  const describeVisualText = document.getElementById("describeVisualText");
+  const prevButton = document.getElementById("prevButton");
+  const nextButton = document.getElementById("nextButton");
+  const overviewButton = document.getElementById("overviewButton");
+  const visualStatus = document.getElementById("visualStatus");
+  const liveStatus = document.getElementById("liveStatus");
+  const audioPlayer = document.getElementById("audioPlayer");
+  const overviewHeading = document.getElementById("overviewHeading");
+  const overviewCount = document.getElementById("overviewCount");
+  const overviewList = document.getElementById("overviewList");
+  const backButton = document.getElementById("backButton");
+
+  let visualStatusTimer = null;
+
+  function announce(message, showVisual = false){
+    liveStatus.textContent = "";
+    setTimeout(() => { liveStatus.textContent = message; }, 40);
+
+    if(showVisual){
+      if(visualStatusTimer) clearTimeout(visualStatusTimer);
+      visualStatus.textContent = message;
+      visualStatus.hidden = false;
+      visualStatusTimer = setTimeout(() => {
+        visualStatus.hidden = true;
+      }, 3200);
+    }
+  }
+
+  function setAudioState(state){
+    audioState = state;
+
+    if(state === "playing"){
+      describeButton.setAttribute("aria-label","暫停展品描述");
+      describeVisualText.textContent = "暫停展品描述";
+    } else if(state === "paused"){
+      describeButton.setAttribute("aria-label","繼續展品描述");
+      describeVisualText.textContent = "繼續展品描述";
+    } else {
+      describeButton.setAttribute("aria-label","聽展品描述");
+      describeVisualText.textContent = "聽展品描述";
+    }
+  }
+
+  function stopAudio(){
+    audioPlayer.pause();
+    if(audioPlayer.getAttribute("src")){
+      try{
+        audioPlayer.currentTime = 0;
+      }catch(e){}
+    }
+    setAudioState("idle");
+  }
+
+  function renderExhibit({announceChange=false}={}){
+    const ex = exhibits[currentIndex];
+
+    positionText.textContent = `第 ${currentIndex + 1} 件，共 ${exhibits.length} 件`;
+    exhibitEra.textContent = ex.era;
+    exhibitTitle.textContent = ex.title;
+
+    // 圖片只有 CSS 背景，不會出現「圖片」這個 VoiceOver/TalkBack 焦點。
+    describeButton.style.backgroundImage = `url("${ex.image}")`;
+
+    // 切換展品時不先載入 MP3。
+    // 等使用者真的按下「聽展品描述」時，才設定 src 並開始下載/播放。
+    audioPlayer.pause();
+    audioPlayer.removeAttribute("src");
+    audioPlayer.load();
+    setAudioState("idle");
+
+    // 第一件 / 最後一件的導覽按鈕仍保持可操作，不使用 disabled。
+    if (currentIndex === 0) {
+      prevButton.setAttribute("aria-label", "上一件，目前已是第一件");
+    } else {
+      prevButton.setAttribute("aria-label", "上一件");
+    }
+
+    if (currentIndex === exhibits.length - 1) {
+      nextButton.setAttribute("aria-label", "下一件，目前已是最後一件");
+    } else {
+      nextButton.setAttribute("aria-label", "下一件");
+    }
+
+    overviewButton.setAttribute("aria-label", `展品總覽，共 ${exhibits.length} 件`);
+    overviewButton.querySelector("span:last-child").textContent =
+      `展品總覽（共 ${exhibits.length} 件）`;
+
+    if(announceChange){
+      announce(`第 ${currentIndex + 1} 件，共 ${exhibits.length} 件，${ex.title}`);
+    }
+  }
+
+  // 唯一的播放控制：聽 / 暫停 / 繼續，全部在同一顆大按鈕。
+  describeButton.addEventListener("click", async () => {
+    if(audioState === "playing"){
+      audioPlayer.pause();
+      setAudioState("paused");
+      announce("展品描述已暫停");
+      return;
+    }
+
+    try{
+      // 只有第一次按下目前展品的播放按鈕時，才指定 MP3 網址。
+      // 這樣切換展品時，照片不必和音檔同時搶網路頻寬。
+      if(!audioPlayer.getAttribute("src")){
+        audioPlayer.src = exhibits[currentIndex].audio;
+        audioPlayer.load();
+      }
+
+      if(audioPlayer.ended){
+        audioPlayer.currentTime = 0;
+      }
+
+      await audioPlayer.play();
+      setAudioState("playing");
+      // 不額外朗讀「開始播放」，避免 VoiceOver/TalkBack 與 MP3 同時發聲。
+      // MP3 本身就是按下此按鈕後的主要回饋。
+    } catch(e){
+      announce("目前無法播放展品描述，請稍後再試");
+    }
+  });
+
+  audioPlayer.addEventListener("ended", () => {
+    setAudioState("idle");
+    announce("展品描述播放完畢");
+  });
+
+  prevButton.addEventListener("click", () => {
+    if(currentIndex <= 0){
+      announce(`已是第一件，第 1 件，共 ${exhibits.length} 件。可使用下一件或展品總覽。`, true);
+      return;
+    }
+    stopAudio();
+    currentIndex -= 1;
+    renderExhibit({announceChange:true});
+  });
+
+  nextButton.addEventListener("click", () => {
+    if(currentIndex >= exhibits.length - 1){
+      announce(`已是最後一件，第 ${exhibits.length} 件，共 ${exhibits.length} 件。可使用上一件或展品總覽。`, true);
+      return;
+    }
+    stopAudio();
+    currentIndex += 1;
+    renderExhibit({announceChange:true});
+  });
+
+  function renderOverview(){
+    overviewCount.textContent = `共 ${exhibits.length} 件`;
+    overviewList.innerHTML = "";
+
+    exhibits.forEach((ex,index) => {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      const isCurrent = index === currentIndex;
+
+      btn.type = "button";
+      btn.className = "overview-item";
+      btn.setAttribute(
+        "aria-label",
+        `第 ${index + 1} 件，${ex.title}${isCurrent ? "，目前展品" : ""}`
+      );
+
+      const main = document.createElement("span");
+      main.className = "overview-main";
+      main.setAttribute("aria-hidden","true");
+
+      const number = document.createElement("span");
+      number.className = "overview-number";
+      number.textContent = `第 ${index + 1} 件`;
+
+      const name = document.createElement("span");
+      name.className = "overview-name";
+      name.textContent = ex.title;
+
+      main.append(number,name);
+
+      if(isCurrent){
+        const badge = document.createElement("span");
+        badge.className = "current-badge";
+        badge.textContent = "目前展品";
+        main.appendChild(badge);
+      }
+
+      const chevron = document.createElement("span");
+      chevron.className = "chevron";
+      chevron.setAttribute("aria-hidden","true");
+      chevron.textContent = "›";
+
+      btn.append(main,chevron);
+
+      btn.addEventListener("click", () => {
+        currentIndex = index;
+        stopAudio();
+        renderExhibit();
+
+        overviewScreen.hidden = true;
+        detailScreen.hidden = false;
+
+        exhibitTitle.setAttribute("tabindex","-1");
+        exhibitTitle.focus();
+        exhibitTitle.removeAttribute("tabindex");
+
+        announce(`第 ${currentIndex + 1} 件，共 ${exhibits.length} 件，${exhibits[currentIndex].title}`);
+      });
+
+      li.appendChild(btn);
+      overviewList.appendChild(li);
+    });
+  }
+
+  overviewButton.addEventListener("click", () => {
+    stopAudio();
+    renderOverview();
+    detailScreen.hidden = true;
+    overviewScreen.hidden = false;
+
+    // 只先到「展品總覽」標題，不自動把整頁所有展品念完。
+    overviewHeading.setAttribute("tabindex","-1");
+    overviewHeading.focus();
+    overviewHeading.removeAttribute("tabindex");
+  });
+
+  backButton.addEventListener("click", () => {
+    overviewScreen.hidden = true;
+    detailScreen.hidden = false;
+    renderExhibit();
+    overviewButton.focus();
+  });
+
+  async function init(){
+    try{
+      await loadExhibitsFromTxt();
+      loadingScreen.hidden = true;
+      detailScreen.hidden = false;
+      renderExhibit();
+    }catch(error){
+      console.error(error);
+      const expectedUrl = new URL("./exhibits.txt", document.baseURI).href;
+      loadingMessage.textContent =
+        `展品資料載入失敗。請確認 exhibits.txt 已和 index.html 放在同一層。讀取位置：${expectedUrl}`;
+    }
+  }
+
+  init();
+
+  // 手機按系統上一頁、Home 回桌面、切換 App、關閉分頁時，停止語音。
+  // visibilitychange：頁面進入背景時觸發。
+  // pagehide：離開目前頁面、返回上一頁或頁面被放入 bfcache 時觸發。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      stopAudio();
+    }
+  });
+
+  window.addEventListener("pagehide", () => {
+    stopAudio();
+  });
+</script>
+
+<script>
+  // Register a network-only Service Worker so Samsung Internet can recognize
+  // this site as an installable PWA. It does NOT cache MP3 or other files.
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./service-worker.js")
+        .catch((error) => console.error("Service Worker registration failed:", error));
+    });
+  }
+</script>
+
+</body>
+</html>
